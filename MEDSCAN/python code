@@ -1,0 +1,423 @@
+import time
+import json
+import os
+from machine import Pin, SPI, SoftI2C
+import ssd1306
+from mfrc522 import MFRC522
+
+# ─────────────────────────────────────────
+# PIN DEFINITIONS
+# ─────────────────────────────────────────
+SS_PIN      = 5
+RST_PIN     = 4
+BUTTON1     = 13
+BUTTON2     = 14
+LED_0       = 15
+LED_1       = 16
+LED_2       = 17
+BEFORE_FOOD = 25
+AFTER_FOOD  = 26
+SCL_PIN     = 22
+SDA_PIN     = 21
+
+# ─────────────────────────────────────────
+# HARDWARE SETUP
+# ─────────────────────────────────────────
+btn1 = Pin(BUTTON1, Pin.IN, Pin.PULL_UP)
+btn2 = Pin(BUTTON2, Pin.IN, Pin.PULL_UP)
+
+led0   = Pin(LED_0,       Pin.OUT)
+led1   = Pin(LED_1,       Pin.OUT)
+led2   = Pin(LED_2,       Pin.OUT)
+before = Pin(BEFORE_FOOD, Pin.OUT)
+after  = Pin(AFTER_FOOD,  Pin.OUT)
+ALL_LEDS = [led0, led1, led2, before, after]
+
+i2c  = SoftI2C(scl=Pin(SCL_PIN), sda=Pin(SDA_PIN), freq=400000)
+oled = ssd1306.SSD1306_I2C(128, 64, i2c)
+
+spi = SPI(2, baudrate=2500000, polarity=0, phase=0,
+          sck=Pin(18), mosi=Pin(23), miso=Pin(19))
+spi.init()
+rdr = MFRC522(spi=spi, gpioRst=RST_PIN, gpioCs=SS_PIN)
+
+# ─────────────────────────────────────────
+# STATES
+# ─────────────────────────────────────────
+WELCOME      = 0
+MAIN_MENU    = 1
+SET_SCAN     = 2
+DOSAGE_ENTRY = 3
+FOOD_TIMING  = 4
+DATA_SAVED   = 5
+LOAD_NEXT    = 6
+READ_SCAN    = 7
+DISPLAY_DATA = 8
+UNKNOWN_TAG  = 9
+
+# ─────────────────────────────────────────
+# GLOBAL VARIABLES
+# ─────────────────────────────────────────
+state         = WELCOME
+dosage        = [0, 0, 0]
+food          = [0, 0]
+dosage_idx    = 0
+food_idx      = 0
+selected_mode = 0
+last_uid      = ""
+tag_processed = False
+
+# ─────────────────────────────────────────
+# STORAGE
+# ─────────────────────────────────────────
+STORAGE_FILE = "medscan.json"
+
+def storage_clear():
+    try:
+        os.remove(STORAGE_FILE)
+    except:
+        pass
+    print("Storage cleared")
+
+def storage_load():
+    try:
+        with open(STORAGE_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return {}
+
+def storage_save(uid, data):
+    db = storage_load()
+    db[uid] = data
+    with open(STORAGE_FILE, "w") as f:
+        json.dump(db, f)
+    print("Saved:", uid, "->", data)
+
+def storage_get(uid):
+    db = storage_load()
+    return db.get(uid, "")
+
+# ─────────────────────────────────────────
+# LED FUNCTIONS
+# ─────────────────────────────────────────
+def leds_off():
+    for led in ALL_LEDS:
+        led.value(0)
+
+def leds_flash(times=3):
+    for _ in range(times):
+        for led in ALL_LEDS:
+            led.value(1)
+        time.sleep_ms(200)
+        leds_off()
+        time.sleep_ms(200)
+
+def leds_dosage(d):
+    led0.value(d[0])
+    led1.value(d[1])
+    led2.value(d[2])
+
+def leds_food(f):
+    if f[0] == 1 and f[1] == 0:
+        before.value(1)
+        after.value(0)
+    elif f[0] == 0 and f[1] == 1:
+        after.value(1)
+        before.value(0)
+    else:
+        before.value(0)
+        after.value(0)
+
+# ─────────────────────────────────────────
+# DISPLAY FUNCTIONS
+# ─────────────────────────────────────────
+def d_show():
+    oled.fill(0)
+
+def show_welcome():
+    oled.fill(0)
+    oled.text("Hello",    25, 15)
+    oled.text("Welcome!", 5,  40)
+    oled.show()
+
+def show_main_menu():
+    oled.fill(0)
+    oled.text("SELECT MODE", 20, 5)
+    oled.hline(0, 16, 128, 1)
+    if selected_mode == 0:
+        oled.fill_rect(0, 25, 128, 15, 1)
+        oled.text("> SET MODE",  15, 28, 0)
+        oled.text("  READ MODE", 15, 48, 1)
+    else:
+        oled.text("  SET MODE",  15, 28, 1)
+        oled.fill_rect(0, 45, 128, 15, 1)
+        oled.text("> READ MODE", 15, 48, 0)
+    oled.text("B1:OK B2:Change", 0, 58)
+    oled.show()
+
+def show_scan(title):
+    oled.fill(0)
+    oled.text(title,      10, 10)
+    oled.hline(0, 22, 128, 1)
+    oled.text("Scan Tag", 10, 35)
+    oled.text("to start", 15, 50)
+    oled.show()
+
+def show_dosage_entry():
+    oled.fill(0)
+    oled.text("DOSAGE ENTRY",   10, 2)
+    oled.hline(0, 13, 128, 1)
+    oled.text("B1:Next B2:0/1", 5,  18)
+    for i, x in enumerate([15, 50, 85]):
+        oled.rect(x, 35, 20, 20, 1)
+        oled.text(str(dosage[i]), x + 6, 42)
+    arrow_x = 23 + dosage_idx * 35
+    oled.text("^", arrow_x, 57)
+    oled.show()
+
+def show_food_entry():
+    oled.fill(0)
+    oled.text("FOOD TIMING",       10, 2)
+    oled.hline(0, 13, 128, 1)
+    oled.text("10=Bfr 01=After",   0, 18)
+    oled.text("B1:Next B2:0/1",    5, 28)
+    for i, x in enumerate([35, 70]):
+        oled.rect(x, 38, 20, 20, 1)
+        oled.text(str(food[i]), x + 6, 45)
+    arrow_x = 43 + food_idx * 35
+    oled.text("^", arrow_x, 60)
+    oled.show()
+
+def show_data_saved():
+    oled.fill(0)
+    oled.text("TABLET DATA", 5,  15)
+    oled.text("STORED!",     25, 32)
+    code = "".join(map(str, dosage)) + " " + "".join(map(str, food))
+    oled.text(code,          20, 48)
+    oled.show()
+
+def show_load_next():
+    oled.fill(0)
+    oled.text("Load next?",     15, 10)
+    oled.hline(0, 23, 128, 1)
+    oled.text("Btn1: Load next", 2, 35)
+    oled.text("Btn2: Exit menu", 2, 50)
+    oled.show()
+
+def show_display_data(data):
+    d = [int(data[0]), int(data[1]), int(data[2])]
+    f = [int(data[3]), int(data[4])]
+    if f[0] == 1 and f[1] == 0:
+        food_txt = "BEFORE food"
+    elif f[0] == 0 and f[1] == 1:
+        food_txt = "AFTER food"
+    else:
+        food_txt = "Timing:" + data[3] + data[4]
+    oled.fill(0)
+    oled.text("Stored Data:",    0,  5)
+    oled.text(data[0:3],         0, 22)
+    oled.text(food_txt,          0, 40)
+    oled.text("B1:Scan B2:Menu", 0, 55)
+    oled.show()
+    return d, f
+
+def show_unknown():
+    oled.fill(0)
+    oled.text("!! UNKNOWN !!",  10, 10)
+    oled.text("TAG",            50, 28)
+    oled.text("No data stored",  5, 42)
+    oled.text("B1:Scan B2:Menu", 0, 55)
+    oled.show()
+
+# ─────────────────────────────────────────
+# RESET HELPERS
+# ─────────────────────────────────────────
+def reset_dosage():
+    global dosage, food, dosage_idx, food_idx
+    dosage     = [0, 0, 0]
+    food       = [0, 0]
+    dosage_idx = 0
+    food_idx   = 0
+    leds_off()
+
+def reset_tag():
+    global last_uid, tag_processed
+    last_uid      = ""
+    tag_processed = False
+
+# ─────────────────────────────────────────
+# BUTTON 1
+# ─────────────────────────────────────────
+def on_button1():
+    global state, dosage_idx, food_idx, selected_mode
+
+    if state == MAIN_MENU:
+        if selected_mode == 0:
+            state = SET_SCAN
+            reset_tag()
+            reset_dosage()
+            show_scan("SET MODE")
+        else:
+            state = READ_SCAN
+            reset_tag()
+            show_scan("READ MODE")
+
+    elif state == DOSAGE_ENTRY:
+        dosage_idx += 1
+        if dosage_idx >= 3:
+            state    = FOOD_TIMING
+            food_idx = 0
+            show_food_entry()
+        else:
+            show_dosage_entry()
+
+    elif state == FOOD_TIMING:
+        food_idx += 1
+        if food_idx >= 2:
+            state = SET_SCAN
+            reset_tag()
+            show_scan("Scan to Save")
+        else:
+            show_food_entry()
+
+    elif state == LOAD_NEXT:
+        state = SET_SCAN
+        reset_tag()
+        reset_dosage()
+        show_scan("SET MODE")
+
+    elif state in (DISPLAY_DATA, UNKNOWN_TAG):
+        leds_off()
+        state = READ_SCAN
+        reset_tag()
+        show_scan("READ MODE")
+
+# ─────────────────────────────────────────
+# BUTTON 2
+# ─────────────────────────────────────────
+def on_button2():
+    global state, selected_mode
+
+    if state == MAIN_MENU:
+        selected_mode = 1 - selected_mode
+        show_main_menu()
+
+    elif state == DOSAGE_ENTRY:
+        dosage[dosage_idx] = 1 - dosage[dosage_idx]
+        show_dosage_entry()
+
+    elif state == FOOD_TIMING:
+        food[food_idx] = 1 - food[food_idx]
+        show_food_entry()
+
+    elif state == LOAD_NEXT:
+        state = MAIN_MENU
+        selected_mode = 0
+        reset_tag()
+        show_main_menu()
+
+    elif state in (DISPLAY_DATA, UNKNOWN_TAG):
+        leds_off()
+        state = MAIN_MENU
+        selected_mode = 0
+        reset_tag()
+        show_main_menu()
+
+# ─────────────────────────────────────────
+# RFID
+# ─────────────────────────────────────────
+def handle_rfid():
+    global state, last_uid, tag_processed, dosage_idx
+
+    if state not in (SET_SCAN, READ_SCAN):
+        return
+
+    (stat, tag_type) = rdr.request(rdr.REQIDL)
+    if stat != rdr.OK:
+        tag_processed = False
+        return
+
+    (stat, raw_uid) = rdr.anticoll()
+    if stat != rdr.OK:
+        return
+
+    uid = "%02x%02x%02x%02x" % (raw_uid[0], raw_uid[1],
+                                  raw_uid[2], raw_uid[3])
+    uid = uid.upper()
+
+    if uid == last_uid and tag_processed:
+        return
+
+    last_uid      = uid
+    tag_processed = True
+    print("Tag scanned:", uid)
+
+    if state == SET_SCAN:
+        # First scan → start dosage entry
+        if dosage_idx == 0 and dosage == [0, 0, 0]:
+            state = DOSAGE_ENTRY
+            show_dosage_entry()
+        # Second scan → save data
+        else:
+            data = "".join(map(str, dosage)) + "".join(map(str, food))
+            storage_save(uid, data)
+            state = DATA_SAVED
+            show_data_saved()
+            leds_flash(3)
+            time.sleep_ms(2000)
+            state = LOAD_NEXT
+            show_load_next()
+
+    else:  # READ_SCAN
+        data = storage_get(uid)
+        if len(data) == 5 and all(c in "01" for c in data):
+            state  = DISPLAY_DATA
+            d, f   = show_display_data(data)
+            leds_dosage(d)
+            leds_food(f)
+        else:
+            state = UNKNOWN_TAG
+            show_unknown()
+            leds_off()
+
+# ─────────────────────────────────────────
+# BOOT + MAIN LOOP
+# ─────────────────────────────────────────
+storage_clear()
+leds_off()
+
+show_welcome()
+time.sleep_ms(3000)
+
+state = MAIN_MENU
+show_main_menu()
+
+last_b1      = 1
+last_b2      = 1
+last_b1_time = 0
+last_b2_time = 0
+DEBOUNCE_MS  = 300
+
+while True:
+    b1  = btn1.value()
+    b2  = btn2.value()
+    now = time.ticks_ms()
+
+    if b1 == 0 and last_b1 == 1:
+        if time.ticks_diff(now, last_b1_time) > DEBOUNCE_MS:
+            print("Button 1 pressed | State:", state)
+            on_button1()
+            last_b1_time = now
+
+    if b2 == 0 and last_b2 == 1:
+        if time.ticks_diff(now, last_b2_time) > DEBOUNCE_MS:
+            print("Button 2 pressed | State:", state)
+            on_button2()
+            last_b2_time = now
+
+    last_b1 = b1
+    last_b2 = b2
+
+    handle_rfid()
+    time.sleep_ms(10)
+
