@@ -18,3 +18,86 @@ Different types of DBMS exist, often corresponding to the database paradigms the
 
 Relational Database Management Systems (RDBMS): These manage relational databases. Examples include PostgreSQL, MySQL, Oracle, and SQL Server. They are characterized by their use of tables, SQL, and strong adherence to ACID properties.
 NoSQL DBMS: These manage NoSQL databases and are tailored to specific data models (document, key-value, column-family, graph). Examples include MongoDB (document), Redis (key-value), and Cassandra (column-family).
+--------------------------------------------------------------------------------------------------------------------------
+Common Meta-Commands:
+\l or \list: List all available databases.
+\c : Connect to a different database. For example, \c mydatabase.
+\dt: List tables in the current database.
+\d : Describe a specific table (show its columns, types, etc.).
+\dn: List schemas.
+\df: List functions.
+\du: List users (roles).
+ iming: Toggle display of query execution time.
+\e: Open the current query buffer in an external editor (defined by the EDITOR environment variable).
+\q: Quit psql.
+\?: Display help for psql meta-commands
+------------------------------------------------------------------------------------------------------------------------
+Understanding Data Types
+Data types define the kind of data that can be stored in a column and how it is interpreted by the database system. PostgreSQL offers a rich set of data types:
+
+Numeric Types:
+SMALLINT, INTEGER, BIGINT: For whole numbers of varying ranges.
+DECIMAL(precision, scale), NUMERIC(precision, scale): For exact numeric values, suitable for currency or precise measurements. precision is the total number of digits, and scale is the number of digits after the decimal point.
+REAL, DOUBLE PRECISION: For approximate floating-point numbers. Use with caution for financial data due to potential precision issues.
+Character Types:
+VARCHAR(n): Variable-length character string with a specified maximum length n.
+TEXT: Variable-length character string with no practical length limit.
+CHAR(n): Fixed-length character string, padded with spaces if shorter than n. Less common now.
+Date/Time Types:
+DATE: Stores calendar date (year, month, day).
+TIME: Stores time of day.
+TIMESTAMP [WITHOUT TIME ZONE | WITH TIME ZONE]: Stores date and time. WITH TIME ZONE is generally recommended for applications dealing with users in different time zones.
+INTERVAL: Stores a duration.
+Boolean Type:
+BOOLEAN: Stores TRUE, FALSE, or NULL.
+Other Important Types:
+UUID: Universally Unique Identifier.
+JSON, JSONB: For storing JSON data. JSONB is a binary format that offers more efficient querying.
+ARRAY: For storing arrays of other data types (e.g., INT[]).
+---------------------------------------------------------------------------------------------------------------------------
+Understanding Constraints
+Constraints are rules enforced on data columns to ensure data integrity and validity. They prevent invalid data from being entered into the database.
+
+1. PRIMARY KEY:
+Uniquely identifies each record in a table. A table can have only one primary key, which can be composed of one or more columns (composite primary key). It implicitly enforces NOT NULL and UNIQUE.
+
+CREATE TABLE Products ( ProductID SERIAL PRIMARY KEY, ProductName VARCHAR(255) NOT NULL );
+
+2. FOREIGN KEY:
+Establishes a link between data in two tables. It ensures that a value in a column (or set of columns) in one table must match a value in the primary key column (or a unique key column) of another table. This enforces referential integrity.
+
+CREATE TABLE Orders ( OrderID SERIAL PRIMARY KEY, CustomerID INT NOT NULL, -- Other columns... FOREIGN KEY (CustomerID) REFERENCES Customers(CustomerID) );
+
+Referential Actions:
+
+ON DELETE CASCADE: If a referenced row is deleted, the referencing rows are also deleted.
+ON DELETE SET NULL: If a referenced row is deleted, the foreign key column in the referencing row is set to NULL.
+ON DELETE RESTRICT (default): Prevents deletion of a referenced row if there are referencing rows.
+Similar actions exist for ON UPDATE.
+3. NOT NULL:
+Ensures that a column cannot contain NULL values. This is essential for critical data fields.
+
+CREATE TABLE Users ( UserID SERIAL PRIMARY KEY, Username VARCHAR(50) NOT NULL, Email VARCHAR(255) );
+
+4. UNIQUE:
+Ensures that all values in a column (or a set of columns) are distinct. Allows NULL values (though typically only one NULL is permitted depending on the RDBMS implementation, PostgreSQL allows multiple NULLs).
+
+CREATE TABLE Products ( ProductID SERIAL PRIMARY KEY, SKU VARCHAR(50) UNIQUE NOT NULL );
+
+5. CHECK:
+Specifies a condition that must be true for the data in a column. Useful for enforcing business rules.
+
+CREATE TABLE Products ( ProductID SERIAL PRIMARY KEY, StockQuantity INT NOT NULL CHECK (StockQuantity >= 0), Price DECIMAL(10, 2) NOT NULL CHECK (Price > 0) );
+-----------------------------------------------------------------------------------------------------------------------------
+Numeric: SMALLINT, INTEGER, BIGINT, DECIMAL(p,s), NUMERIC(p,s), REAL, DOUBLE PRECISION.
+Character: VARCHAR(n), TEXT.
+Date/Time: DATE, TIME, TIMESTAMP WITH TIME ZONE, INTERVAL.
+Boolean: BOOLEAN.
+Other: UUID, JSON, JSONB, ARRAY.
+
+----------
+PRIMARY KEY: Uniquely identifies rows. Implicitly NOT NULL and UNIQUE.
+FOREIGN KEY: Links tables, enforces referential integrity. Supports actions like ON DELETE CASCADE.
+NOT NULL: Prevents NULL values.
+UNIQUE: Ensures distinct values in a column.
+CHECK: Enforces custom business rules (e.g., StockQuantity >= 0).
