@@ -1,0 +1,20 @@
+Use SQL when your data has clear relationships (e.g., users → orders → products).
+Use NoSQL when your data is flexible, large-scale, or changes shape often (e.g., social media posts, real-time apps).
+-------------------------------------------------------------------------------------------------------------------------
+SQL = a library with a catalog system — every book has a fixed place, and you can find relationships easily.
+NoSQL = a big bag — you can throw anything in, find it fast, but it's harder to relate things to each other.
+-------------------------------------------------------------------------------------------------------------------------
+The primary functions of a DBMS include:
+
+Data Definition: Allowing users to define the database structure, including tables, fields, data types, and relationships. This is often done using a Data Definition Language (DDL), a subset of SQL.
+Data Manipulation: Enabling users to insert, update, delete, and retrieve data from the database. This is typically handled by a Data Manipulation Language (DML), another subset of SQL.
+Data Control: Managing security, access permissions, and data integrity to ensure that only authorized users can access and modify data, and that the data remains accurate and consistent. This involves Data Control Language (DCL) and Transaction Control Language (TCL) commands.
+Concurrency Control: Managing simultaneous access to the database by multiple users to prevent conflicts and ensure data consistency.
+Backup and Recovery: Providing mechanisms for backing up the database and recovering it in case of hardware or software failures.
+Data Integrity Enforcement: Ensuring that data adheres to predefined rules and constraints, maintaining its accuracy and reliability.
+Performance Optimization: Optimizing query execution and data storage to ensure efficient data retrieval and processing.
+--------------------------------------------------------------------------------------------------------------------------
+Different types of DBMS exist, often corresponding to the database paradigms they support:
+
+Relational Database Management Systems (RDBMS): These manage relational databases. Examples include PostgreSQL, MySQL, Oracle, and SQL Server. They are characterized by their use of tables, SQL, and strong adherence to ACID properties.
+NoSQL DBMS: These manage NoSQL databases and are tailored to specific data models (document, key-value, column-family, graph). Examples include MongoDB (document), Redis (key-value), and Cassandra (column-family).
